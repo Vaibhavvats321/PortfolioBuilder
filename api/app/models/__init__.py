@@ -10,6 +10,7 @@ from app.models.navigation import (
     NavigationLocation,
 )
 from app.models.page import Page, PageStatus
+from app.models.page_section import PageSection
 from app.models.portfolio import Portfolio, PortfolioStatus
 from app.models.session import Session
 from app.models.user import User
@@ -20,6 +21,7 @@ __all__ = [
     "NavigationLocation",
     "Page",
     "PageStatus",
+    "PageSection",
     "Portfolio",
     "PortfolioStatus",
     "Session",

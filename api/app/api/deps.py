@@ -15,10 +15,14 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.security import hash_token, tokens_match
 from app.db.session import get_db
+from app.models.page import Page
+from app.models.page_section import PageSection
 from app.models.portfolio import Portfolio
 from app.models.session import Session as AuthSession
 from app.models.user import User
+from app.services.pages import get_owned_page as _query_owned_page
 from app.services.portfolios import get_owned_portfolio as _query_owned_portfolio
+from app.services.sections import get_owned_section as _query_owned_section
 from app.services.sessions import get_valid_session
 
 CSRF_HEADER_NAME = "X-CSRF-Token"
@@ -80,6 +84,46 @@ def get_owned_portfolio(
             detail="Portfolio not found.",
         )
     return portfolio
+
+
+def get_owned_page(
+    page_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Page:
+    """Resolve the path page when it belongs to the authenticated user.
+
+    A page owned by another user (or in another user's portfolio) is reported as
+    404 so the API never confirms the existence of another user's private page.
+    Page-scoped resources such as sections depend on this to enforce ownership
+    from the session, never from client input.
+    """
+    page = _query_owned_page(db, owner=current_user, page_id=page_id)
+    if page is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Page not found.",
+        )
+    return page
+
+
+def get_owned_section(
+    section_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PageSection:
+    """Resolve the path section when it belongs to the authenticated user.
+
+    Ownership is derived through the section's page and portfolio. Another
+    user's section is reported as 404, matching the page and portfolio behavior.
+    """
+    section = _query_owned_section(db, owner=current_user, section_id=section_id)
+    if section is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Section not found.",
+        )
+    return section
 
 
 def require_csrf(

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { Button, buttonClassName } from "@/components/ui/button";
 import {
   PageForm,
   type PageFormValues,
@@ -296,6 +297,12 @@ export function PageManager({ portfolioId }: PageManagerProps) {
                   >
                     {editingId === page.id ? "Close" : "Edit"}
                   </Button>
+                  <Link
+                    href={`/dashboard/portfolios/${portfolioId}/pages/${page.id}`}
+                    className={buttonClassName("secondary")}
+                  >
+                    Edit content
+                  </Link>
                   <Button
                     variant="secondary"
                     onClick={() => handleDelete(page)}

@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, health, navigation, pages, portfolios
+from app.api.routes import auth, health, navigation, pages, portfolios, sections
 from app.core.config import get_settings
 
 
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
     application.include_router(portfolios.router)
     application.include_router(pages.router)
     application.include_router(navigation.router)
+    application.include_router(sections.router)
 
     return application
 

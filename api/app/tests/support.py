@@ -134,3 +134,63 @@ def put_navigation(client: TestClient, portfolio_id: str, items: list[dict[str, 
         json={"items": items},
         headers=csrf_headers_for(client),
     )
+
+
+def list_section_types(client: TestClient):
+    """Fetch the supported section-type registry."""
+    return client.get("/section-types")
+
+
+def create_section(
+    client: TestClient,
+    page_id: str,
+    *,
+    section_type: str = "rich_text",
+    name: str | None = None,
+    is_visible: bool = True,
+    content: dict[str, object] | None = None,
+    layout: dict[str, object] | None = None,
+):
+    """Create a section on a page using the client's CSRF token."""
+    body: dict[str, object] = {"section_type": section_type, "is_visible": is_visible}
+    if name is not None:
+        body["name"] = name
+    if content is not None:
+        body["content"] = content
+    if layout is not None:
+        body["layout"] = layout
+    return client.post(f"/pages/{page_id}/sections", json=body, headers=csrf_headers_for(client))
+
+
+def list_sections(client: TestClient, page_id: str):
+    """List a page's sections."""
+    return client.get(f"/pages/{page_id}/sections")
+
+
+def fetch_section(client: TestClient, section_id: str):
+    """Retrieve a single section."""
+    return client.get(f"/sections/{section_id}")
+
+
+def update_section(client: TestClient, section_id: str, **changes: object):
+    """Patch a section using the client's CSRF token."""
+    return client.patch(f"/sections/{section_id}", json=changes, headers=csrf_headers_for(client))
+
+
+def delete_section(client: TestClient, section_id: str):
+    """Delete a section using the client's CSRF token."""
+    return client.delete(f"/sections/{section_id}", headers=csrf_headers_for(client))
+
+
+def duplicate_section(client: TestClient, section_id: str):
+    """Duplicate a section using the client's CSRF token."""
+    return client.post(f"/sections/{section_id}/duplicate", headers=csrf_headers_for(client))
+
+
+def reorder_sections(client: TestClient, page_id: str, section_ids: list[str]):
+    """Set the explicit section order using the client's CSRF token."""
+    return client.put(
+        f"/pages/{page_id}/sections/order",
+        json={"section_ids": section_ids},
+        headers=csrf_headers_for(client),
+    )
