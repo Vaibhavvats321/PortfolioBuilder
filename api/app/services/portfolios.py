@@ -17,6 +17,7 @@ from app.core.slugs import slug_error, slugify
 from app.models.portfolio import Portfolio, PortfolioStatus
 from app.models.user import User
 from app.services.pages import create_default_pages
+from app.services.publication import invalidate_published_cache
 
 
 class PortfolioError(Exception):
@@ -110,8 +111,11 @@ def update_portfolio(
     """Apply validated metadata changes to ``portfolio``.
 
     Only the keys present in ``changes`` are modified. ``portfolio`` is assumed
-    to already be ownership-checked by the caller.
+    to already be ownership-checked by the caller. A slug or metadata change on
+    a published portfolio invalidates its cached public bundle so the public
+    URL and SEO metadata update on the next request.
     """
+    previous_slug = portfolio.slug
     if "name" in changes:
         portfolio.name = str(changes["name"])
     if "slug" in changes:
@@ -124,16 +128,23 @@ def update_portfolio(
         portfolio.slug = new_slug
     if "description" in changes:
         portfolio.description = changes["description"]
-    return _commit(db, portfolio)
+    committed = _commit(db, portfolio)
+    invalidate_published_cache(previous_slug)
+    invalidate_published_cache(committed.slug)
+    return committed
 
 
 def delete_portfolio(db: Session, *, portfolio: Portfolio) -> None:
     """Permanently delete ``portfolio``.
 
     Deletion is a hard delete; the destructive action is confirmed in the UI.
+    The cached public bundle (if any) is dropped so a deleted site stops being
+    served immediately.
     """
+    slug = portfolio.slug
     db.delete(portfolio)
     db.commit()
+    invalidate_published_cache(slug)
 
 
 def _commit(db: Session, portfolio: Portfolio) -> Portfolio:

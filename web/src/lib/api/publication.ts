@@ -29,3 +29,37 @@ export function unpublishPortfolio(id: string): Promise<Portfolio> {
 export function fetchPortfolioPreview(id: string): Promise<PortfolioPreview> {
   return apiFetch<PortfolioPreview>(`/portfolios/${id}/preview`);
 }
+
+/**
+ * One page of a published site as listed by the public sitemap index.
+ * `updated_at` is the snapshot's copy of the page timestamp, so it only moves
+ * when the site is republished.
+ */
+export interface PublishedSitePageSummary {
+  slug: string;
+  is_homepage: boolean;
+  updated_at: string;
+}
+
+/** Public sitemap entry for one currently published portfolio. */
+export interface PublishedSiteSummary {
+  slug: string;
+  published_at: string | null;
+  pages: PublishedSitePageSummary[];
+}
+
+/**
+ * Fetch a published site bundle for anonymous public rendering. 404 means the
+ * portfolio is unknown, draft, unpublished, or unpublishable — never draft
+ * content.
+ */
+export function fetchPublishedSite(slug: string): Promise<PortfolioPreview> {
+  return apiFetch<PortfolioPreview>(
+    `/public/portfolios/${encodeURIComponent(slug)}`,
+  );
+}
+
+/** Fetch every currently published site (sitemap/robots discovery). */
+export function fetchPublishedSites(): Promise<PublishedSiteSummary[]> {
+  return apiFetch<PublishedSiteSummary[]>("/public/sites");
+}

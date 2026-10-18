@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_owned_portfolio, require_csrf
+from app.api.deps import (
+    get_current_user,
+    get_optional_current_user,
+    get_owned_portfolio,
+    require_csrf,
+)
 from app.db.session import get_db
 from app.models.media_asset import MediaAsset
 from app.models.portfolio import Portfolio
@@ -24,6 +29,7 @@ from app.services.media import (
     delete_media_asset,
     get_media_root,
     get_owned_media_asset,
+    get_public_media_asset,
     list_media_assets,
     update_media_asset,
 )
@@ -41,6 +47,22 @@ def _load_owned_media(db: Session, current_user: User, media_id: uuid.UUID) -> M
     asset = get_owned_media_asset(db, owner=current_user, media_id=media_id)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MEDIA_NOT_FOUND)
+    return asset
+
+
+def _load_viewable_media(db: Session, current_user: User | None, media_id: uuid.UUID) -> MediaAsset:
+    """Resolve a media file for either the owner or an anonymous site visitor.
+
+    Signed-in callers keep the strict owner-only rule (404 when not owned).
+    Anonymous callers may only read assets whose portfolio is published; every
+    other asset keeps the historical 401, so draft media stays private and
+    its existence is not revealed.
+    """
+    if current_user is not None:
+        return _load_owned_media(db, current_user, media_id)
+    asset = get_public_media_asset(db, media_id=media_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
     return asset
 
 
@@ -99,12 +121,12 @@ def read_media(
 @router.get("/media/{media_id}/file")
 def serve_media_file(
     media_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
     storage: MediaStorage = Depends(get_media_storage),
     db: Session = Depends(get_db),
 ) -> FileResponse:
-    """Stream an owned asset's file inline for the editor and preview."""
-    asset = _load_owned_media(db, current_user, media_id)
+    """Stream an asset's file inline for the editor, preview, and public site."""
+    asset = _load_viewable_media(db, current_user, media_id)
     path = storage.get_path(asset.storage_key)
     if not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_MEDIA_NOT_FOUND)

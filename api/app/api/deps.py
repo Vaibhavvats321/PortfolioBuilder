@@ -50,6 +50,30 @@ def get_current_user(session: AuthSession = Depends(get_session)) -> User:
     return session.user
 
 
+def get_optional_session(request: Request, db: Session = Depends(get_db)) -> AuthSession | None:
+    """Return the caller's session when a valid one exists, otherwise ``None``.
+
+    Unlike ``get_session`` this never raises, so a route can mix authenticated
+    behavior with anonymous access (for example, serving files of a published
+    portfolio to public site visitors).
+    """
+    settings = get_settings()
+    raw_token = request.cookies.get(settings.session_cookie_name)
+    if not raw_token:
+        return None
+    session = get_valid_session(db, raw_token)
+    if session is None or not session.user.is_active:
+        return None
+    return session
+
+
+def get_optional_current_user(
+    session: AuthSession | None = Depends(get_optional_session),
+) -> User | None:
+    """Return the signed-in user, or ``None`` for anonymous visitors."""
+    return session.user if session is not None else None
+
+
 def get_owned_portfolio(
     portfolio_id: uuid.UUID,
     current_user: User = Depends(get_current_user),

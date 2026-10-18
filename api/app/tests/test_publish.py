@@ -368,3 +368,40 @@ def test_preview_returns_live_draft_for_owner(client: TestClient, client_factory
     assert client.get(f"/portfolios/{portfolio_id}/preview").status_code == 200
     fresh = client_factory()
     assert fresh.get(f"/portfolios/{portfolio_id}/preview").status_code == 401
+
+
+def test_preview_and_snapshot_include_navigation_items(
+    client: TestClient, db_session: Session
+) -> None:
+    """Regression: navigation payloads must validate against PreviewResponse.
+
+    The snapshot navigation entries previously omitted ``portfolio_id``, which
+    made both the draft preview and the public resolver fail validation as
+    soon as an owner configured navigation.
+    """
+    portfolio_id = _setup_portfolio(client)
+    home_id = _homepage_id(client, portfolio_id)
+    put_navigation(
+        client,
+        portfolio_id,
+        items=[
+            {
+                "location": "header",
+                "label": "Home",
+                "destination_type": "page",
+                "page_id": home_id,
+            }
+        ],
+    )
+
+    preview = client.get(f"/portfolios/{portfolio_id}/preview")
+    assert preview.status_code == 200
+    nav = preview.json()["navigation"]
+    assert len(nav) == 1
+    assert nav[0]["portfolio_id"] == portfolio_id
+    assert nav[0]["label"] == "Home"
+
+    assert _publish(client, portfolio_id).status_code == 200
+    versions = _versions(db_session, portfolio_id)
+    snapshot_nav = versions[0].snapshot_json["navigation"]
+    assert snapshot_nav[0]["portfolio_id"] == portfolio_id

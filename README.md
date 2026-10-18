@@ -7,13 +7,16 @@ repository is a monorepo containing:
 - `api/` — FastAPI backend, the authoritative API and business-logic layer.
 - PostgreSQL — source of truth for editable data.
 
-> **Current status: Phase 5 (visual editor, themes, and design studio).**
-> The authentication foundation, portfolio CRUD (owner-scoped, CSRF-protected,
-> slug validation), per-portfolio pages and navigation, the visual section editor
-> (typed section registry, per-section content/layout/style), and the theme +
-> design studio (validated design tokens, global layout, section-level style
-> overrides, and starter templates) are complete. Media, the public renderer, and
-> publishing are **not** implemented yet. See
+> **Current status: Phase 9 (hardening and release).**
+> Phases 1–8 are implemented: authentication, multi-portfolio management,
+> page/navigation management, the typed section engine and visual editor,
+> themes and the Design Studio, the media library with responsive preview
+> controls, draft save / protected preview / publish with immutable snapshots,
+> and the public website renderer (`/p/{portfolio_slug}` and
+> `/p/{portfolio_slug}/{page_slug}`) with SEO metadata, 404 behavior, and
+> caching. Phase 9 adds the remaining security sweeps, the end-to-end journey
+> test, documentation updates, and release verification (fresh-install
+> migrations and the production build). See
 > [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) for the full product and engineering
 > specification.
 
@@ -29,17 +32,24 @@ PortfolioBuilder/
     src/
       app/               App Router routes
         (auth)/          Login and registration pages
+        dashboard/       Portfolio dashboard and editor screens
+        p/               Public published-site routes (/p/{slug}, /p/{slug}/{page})
+        not-found.tsx    Branded catch-all 404
+        robots.ts        Crawler policy (public site indexable, admin disallowed)
+        sitemap.ts       Sitemap built from currently published sites
       components/         Shared UI components
         auth/            Authentication forms and status panel
         builder/         Section editor (list, library, inspector, preview)
         design/          Theme design studio, preview, and template gallery
-        portfolio/       Portfolio, page, and navigation managers
+        portfolio/       Portfolio, page, navigation, and publication managers
+        public/          Server-rendered published-site chrome and sections
         ui/              Reusable UI primitives (button, text field)
-      lib/api/            Typed API client
+      lib/api/            Typed API client (incl. publication + public site)
       lib/auth/          Client-side validation helpers
       lib/page/          Page and navigation validation helpers
       lib/portfolio/     Portfolio validation helpers
-      lib/section/       Section field validation and defaults
+      lib/public/        Public-route path, navigation, and SEO helpers
+      lib/section/       Section field validation, defaults, responsive breakpoints
       lib/theme/         Theme fonts, contrast, and preview-style helpers
       types/              Shared TypeScript types
   api/                   FastAPI application
@@ -48,12 +58,12 @@ PortfolioBuilder/
       core/config.py      Settings (pydantic-settings)
       core/security.py    Password hashing and token helpers
       db/                 SQLAlchemy base, engine, and session management
-      models/             ORM models (users, sessions, portfolios, pages, navigation, sections, themes)
+      models/             ORM models (users, sessions, portfolios, pages, navigation, sections, themes, media, versions)
       schemas/            Pydantic request/response schemas
       sections/           Section type registry and shared field engine
       theme/              Theme token/component registry and templates
-      services/           Business logic (auth, sessions, portfolios, pages, navigation, sections, themes)
-      api/routes/         API route modules
+      services/           Business logic (auth, sessions, portfolios, pages, navigation, sections, themes, media, publication)
+      api/routes/         API route modules (incl. media and public)
       api/deps.py         Reusable auth/CSRF dependencies
       tests/              pytest suite
     alembic/              Alembic migrations
@@ -81,7 +91,10 @@ Copy-Item web\.env.example web\.env.local
 
 - `api/.env` is read by the backend (`DATABASE_URL`, `ENVIRONMENT`, `DEBUG`,
   `CORS_ORIGINS`, and optional authentication cookie settings).
-- `web/.env.local` is read by Next.js (`NEXT_PUBLIC_API_BASE_URL`).
+- `web/.env.local` is read by Next.js (`NEXT_PUBLIC_API_BASE_URL`, and
+  optionally `NEXT_PUBLIC_SITE_URL` — the absolute origin used to build
+  canonical URLs, Open Graph URLs, the sitemap, and the robots sitemap
+  pointer; it defaults to `http://localhost:3000`).
 
 The backend deliberately has **no database fallback**: if `DATABASE_URL` is not
 set, database features fail loudly instead of silently using another database.
@@ -222,6 +235,61 @@ Section, theme, and template design notes:
 - Themes are owner-scoped and isolated per portfolio: two portfolios can use
   different themes and layouts.
 
+### Media library
+
+Phase 6 adds image uploads. Files are stored on disk through a local
+filesystem adapter (an object-storage adapter is the production path); only
+metadata lives in PostgreSQL. Uploads are validated by actual content (size,
+sniffed type, and declared type must agree) and stored under generated keys.
+
+| Method | Path                                | Description                                             |
+| ------ | ----------------------------------- | ------------------------------------------------------- |
+| GET    | `/portfolios/{id}/media`            | List the portfolio's assets (200/404; auth)             |
+| POST   | `/portfolios/{id}/media`            | Upload an image (201/400/404/422; auth + CSRF)          |
+| GET    | `/media/{media_id}`                 | Fetch one asset's metadata (200/404; auth, owner-only)  |
+| PATCH  | `/media/{media_id}`                 | Update alt text / caption (200/404/422; auth + CSRF)    |
+| DELETE | `/media/{media_id}`                 | Delete an asset (204/404; auth + CSRF)                  |
+| GET    | `/media/{media_id}/file`            | Stream the file inline (owner, or any visitor while the portfolio is published) |
+
+The editor's media picker stores the absolute `/media/{id}/file` URL into a
+section's `image_url` field. Anonymous visitors can only read files whose
+portfolio is currently published; draft media answers 401 so its existence is
+never revealed.
+
+### Preview, publish, and snapshots
+
+Phase 7 separates draft editing from publication. Drafts are validated on
+every write; publishing re-validates the whole portfolio, builds an immutable
+snapshot (`portfolio_versions.snapshot_json`), and repoints
+`portfolios.current_published_version_id` in one transaction.
+
+| Method | Path                              | Description                                            |
+| ------ | --------------------------------- | ------------------------------------------------------ |
+| GET    | `/portfolios/{id}/preview`        | Owner's live draft bundle, same shape as a snapshot (200/404; auth) |
+| POST   | `/portfolios/{id}/publish`        | Validate and publish atomically (200/404/422; auth + CSRF) |
+| POST   | `/portfolios/{id}/unpublish`      | Return to draft; history is kept (200/404; auth + CSRF) |
+
+Failed publication never disturbs the previously active version, and
+unpublished sites always resolve to 404 on the public surface.
+
+### Public website API
+
+Phase 8 adds the anonymous read surface the Next.js `/p/...` routes render
+from. It is the only unauthenticated content API and serves strictly from the
+active published snapshot — never from draft tables.
+
+| Method | Path                            | Description                                          |
+| ------ | ------------------------------- | ---------------------------------------------------- |
+| GET    | `/public/portfolios/{slug}`     | Full published bundle (200/404, `Cache-Control: no-store`) |
+| GET    | `/public/sites`                 | Index of currently published sites for the sitemap   |
+
+Caching: the backend keeps a small process-local cache of resolved bundles.
+Invalidation is immediate in the process that handles publish, unpublish,
+portfolio metadata changes, and deletion; in multi-process deployments other
+processes converge within the documented cache window of **60 seconds**
+(`PUBLISHED_CACHE_TTL_SECONDS`). HTTP responses are `no-store`, so browsers
+and proxies never extend that window.
+
 Design notes:
 
 - Passwords are hashed with Argon2 via `pwdlib`; hashes and raw session tokens
@@ -259,10 +327,21 @@ pnpm dev
 - The frontend provides login/registration, an account panel, and a dashboard
   for creating, listing, viewing, updating, and deleting portfolios. Each
   portfolio page has tabs to manage its metadata, pages (create/edit/reorder/
-  homepage visibility), navigation, and design (theme tokens, global layout, and
-  starter templates). The page editor adds, edits, reorders, and previews
-  sections, including per-section style overrides. All credentialed requests
+  homepage visibility), navigation, media, and design (theme tokens, global
+  layout, and starter templates). The page editor adds, edits, reorders, and
+  previews sections (with desktop/tablet/mobile preview modes), including
+  per-section style overrides and per-breakpoint responsive overrides. The
+  publication panel saves drafts, opens the protected preview, and
+  publishes/unpublishes with a link to the live site. All credentialed requests
   include cookies and the CSRF header for state-changing operations.
+- Published sites render server-side at `/p/{portfolio_slug}` and
+  `/p/{portfolio_slug}/{page_slug}` from the published snapshot only. These
+  routes ship no admin/builder JavaScript, emit per-page SEO metadata
+  (title, description, canonical URL, Open Graph), and fall back to a branded
+  404 for unknown, draft, unpublished, or corrupt sites. `robots.txt` allows
+  indexing of the public surface while disallowing the dashboard and auth
+  routes, and `sitemap.xml` is built exclusively from currently published
+  sites.
 
 ### Frontend commands
 
@@ -300,20 +379,69 @@ expired/revoked sessions, disabled users, CSRF rejection/acceptance, cookie
 attributes, database uniqueness, and per-user session isolation), owner-scoped
 portfolio management (list/create/get/update/delete, ownership enforcement,
 cross-user isolation, slug validation/uniqueness, pagination validation, and
-CSRF/session authorization), and pages/navigation (starter-page seeding, page
+CSRF/session authorization), pages/navigation (starter-page seeding, page
 CRUD and ordering, homepage assignment/uniqueness/delete guard, page slug
 uniqueness per portfolio, navigation replace/edit/reorder and destination
-validation, cascade cleanup, and database constraint enforcement), and the
-visual editor and themes (section-type descriptors, section CRUD/ordering/
-duplication, per-section content/layout/style validation, theme options and
-token/component validation, global-layout persistence, template listing and
-application, per-portfolio theme isolation, and ownership enforcement).
+validation, cascade cleanup, and database constraint enforcement), the visual
+editor and themes (section-type descriptors, section CRUD/ordering/
+duplication, per-section content/layout/style/responsive-override validation,
+theme options and token/component validation, global-layout persistence,
+template listing and application, per-portfolio theme isolation, and
+ownership enforcement), the media library (upload validation, metadata,
+per-portfolio scoping, ownership isolation, and public file serving gated on
+publication state), publication (validation, immutable snapshots, atomic
+publish/unpublish, draft/published separation, and republish versioning), the
+public website API (anonymous reads, 404 for draft/unpublished/unknown/corrupt
+sites, cache invalidation on publish/unpublish/metadata change/delete, and
+sitemap discovery), and security sweeps that walk the entire route table to
+prove every protected route rejects anonymous callers and every state-changing
+route rejects missing CSRF tokens. `test_journey.py` additionally runs the
+whole create → customize → preview → publish → unpublish journey end to end
+through the HTTP API (spec 19.5).
 
 Tests run against a separate database derived from `DATABASE_URL` by appending
 `_test` (override with `TEST_DATABASE_URL`). The fixtures refuse to run against
 the configured development database, so test cleanup never touches development
 data. The frontend is validated by lint, strict TypeScript type checking,
 formatting checks, and a production build.
+
+### Release verification
+
+A clean checkout can be verified end to end with:
+
+```powershell
+# 1. Fresh-install migrations against an empty database
+#    (use a scratch database name; never point this at real data)
+$env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/portfolio_builder_fresh_check"
+cd api; uv run alembic upgrade head
+
+# 2. Backend checks
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+
+# 3. Frontend checks and production build
+cd ..\web; pnpm install; pnpm lint; pnpm typecheck; pnpm format:check; pnpm build
+```
+
+## Known limitations
+
+- **Per-breakpoint responsive overrides on the public site.** Section
+  `responsive_override` values for desktop/tablet/mobile are stored,
+  validated, and rendered in the editor's device-preview modes, but the
+  public renderer currently applies each section's base (desktop) style only.
+  Public pages remain fluid (flexible layouts, wrapping navigation, no fixed
+  viewport overflow); only the explicit per-breakpoint style deltas are not
+  yet translated into media queries on published pages.
+- **Published-site cache window across processes.** The published-bundle
+  cache is process-local: publish/unpublish and metadata changes invalidate
+  immediately in the process that handled them, while other worker processes
+  converge within the documented 60-second TTL. HTTP responses are
+  `no-store`, so clients never cache beyond that window.
+- **Local media storage.** The default storage adapter writes uploads to the
+  local filesystem (`MEDIA_ROOT`), which suits single-instance development;
+  production multi-instance deployments should point media at shared
+  object storage.
 
 ## Architecture notes
 

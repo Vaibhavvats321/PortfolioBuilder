@@ -22,6 +22,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.services.publication import invalidate_published_cache
 
 
 def _resolve_test_database_url() -> str:
@@ -99,6 +100,20 @@ def test_engine(test_database_url: str) -> Iterator[Engine]:
     finally:
         Base.metadata.drop_all(engine)
         engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _clear_published_site_cache() -> Iterator[None]:
+    """Clear the process-local published-site cache around every test.
+
+    The cache outlives a single test (it is module state, while the database
+    is rolled back per test), so without this a later test could be served a
+    bundle that only ever existed inside an earlier test's rolled-back
+    transaction.
+    """
+    invalidate_published_cache()
+    yield
+    invalidate_published_cache()
 
 
 @pytest.fixture

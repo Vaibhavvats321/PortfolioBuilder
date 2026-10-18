@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.media_asset import MediaAsset
-from app.models.portfolio import Portfolio
+from app.models.portfolio import Portfolio, PortfolioStatus
 from app.models.user import User
 
 DEFAULT_MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", "media"))
@@ -210,6 +210,24 @@ def get_owned_media_asset(db: Session, *, owner: User, media_id: uuid.UUID) -> M
         select(MediaAsset)
         .join(Portfolio)
         .where(MediaAsset.id == media_id, Portfolio.owner_id == owner.id)
+    )
+
+
+def get_public_media_asset(db: Session, *, media_id: uuid.UUID) -> MediaAsset | None:
+    """Return the asset when its portfolio is currently published, else ``None``.
+
+    Lets anonymous public-site visitors load the images their published pages
+    reference while keeping draft portfolios' media unreachable without a
+    session (the route falls back to 401, indistinguishable from any other
+    private asset).
+    """
+    return db.scalar(
+        select(MediaAsset)
+        .join(Portfolio)
+        .where(
+            MediaAsset.id == media_id,
+            Portfolio.status == PortfolioStatus.PUBLISHED.value,
+        )
     )
 
 

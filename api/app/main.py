@@ -10,6 +10,7 @@ from app.api.routes import (
     navigation,
     pages,
     portfolios,
+    public,
     sections,
     templates,
     theme,
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
     application.include_router(theme.router)
     application.include_router(templates.router)
     application.include_router(media.router)
+    application.include_router(public.router)
 
     return application
 

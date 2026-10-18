@@ -15,26 +15,37 @@ Publication is portfolio-level and deliberately separate from draft editing:
 
 The snapshot and the draft preview are built by the same ``build_snapshot``
 function so preview and published rendering consume identical shapes.
+
+The public resolver (``get_published_site``) additionally serves the active
+snapshot through a small process-local cache so public page loads do not
+re-parse the JSONB snapshot on every request. The cache window is at most
+``PUBLISHED_CACHE_TTL_SECONDS`` (60 seconds) and is invalidated immediately on
+publish, unpublish, portfolio update, and portfolio delete, so a successful
+publication or unpublish is visible on the very next request.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import time
 import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import urlparse
 
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.slugs import slug_error
+from app.core.slugs import normalize_slug, slug_error
 from app.models.navigation import NavigationDestinationType
 from app.models.page_section import PageSection
 from app.models.portfolio import Portfolio, PortfolioStatus
 from app.models.portfolio_version import SNAPSHOT_SCHEMA_VERSION, PortfolioVersion
 from app.models.theme_config import ThemeConfig
 from app.models.user import User
+from app.schemas.publication import PreviewResponse
 from app.sections.fields import SectionValidationError
 from app.sections.registry import get_definition
 from app.services.media import list_media_assets
@@ -48,6 +59,8 @@ from app.theme.registry import (
     validate_components,
     validate_tokens,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PublicationError(Exception):
@@ -174,6 +187,7 @@ def build_snapshot(db: Session, *, portfolio: Portfolio) -> dict[str, Any]:
         "navigation": [
             {
                 "id": item.id,
+                "portfolio_id": item.portfolio_id,
                 "location": item.location,
                 "label": item.label,
                 "destination_type": item.destination_type,
@@ -356,6 +370,7 @@ def publish_portfolio(
     db.commit()
     db.refresh(portfolio)
     db.refresh(version)
+    invalidate_published_cache(portfolio.slug)
     return portfolio, version
 
 
@@ -373,6 +388,7 @@ def unpublish_portfolio(db: Session, *, portfolio: Portfolio) -> Portfolio:
     portfolio.published_at = None
     db.commit()
     db.refresh(portfolio)
+    invalidate_published_cache(portfolio.slug)
     return portfolio
 
 
@@ -399,3 +415,117 @@ def list_versions(db: Session, *, portfolio: Portfolio) -> list[PortfolioVersion
             .order_by(PortfolioVersion.version_number)
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Public site resolver
+# ---------------------------------------------------------------------------
+
+PUBLISHED_CACHE_TTL_SECONDS = 60.0
+"""Upper bound (seconds) for how long an already-resolved published bundle may
+be served from the process-local cache without re-reading the database.
+
+In-process invalidation on publish, unpublish, portfolio update, and portfolio
+delete makes those events visible on the very next request; the TTL only
+bounds anything the invalidation hooks cannot see (for example, direct
+database edits outside the API)."""
+
+_published_cache: dict[str, tuple[float, PreviewResponse]] = {}
+
+
+def invalidate_published_cache(slug: str | None = None) -> None:
+    """Drop the cached published bundle for ``slug`` (or the whole cache).
+
+    Called after every successful publish/unpublish commit, on portfolio
+    update (slug/name/description changes), and on portfolio delete.
+    """
+    if slug is None:
+        _published_cache.clear()
+    else:
+        _published_cache.pop(normalize_slug(slug), None)
+
+
+def get_published_site(db: Session, *, slug: str) -> PreviewResponse | None:
+    """Return the active published bundle for ``slug``, or ``None``.
+
+    None covers every private-or-missing case: unknown slug, draft or
+    unpublished status, a missing version row, and a stored snapshot that no
+    longer validates — all of which must behave as 404 on the public site.
+    Draft content is never consulted, so unpublished sites cannot fall back
+    to their draft pages.
+
+    Pages, sections, navigation, and theme come strictly from the immutable
+    snapshot. Portfolio-level metadata (name, slug, description) and the
+    publication state are overlaid from the live row: a rename or slug change
+    on a published portfolio must take effect on the next request (a stale
+    slug in navigation links would otherwise 404), which is exactly why those
+    updates invalidate the cache.
+    """
+    key = normalize_slug(slug)
+    cached = _published_cache.get(key)
+    if cached is not None and time.monotonic() - cached[0] < PUBLISHED_CACHE_TTL_SECONDS:
+        return cached[1]
+    if cached is not None:
+        del _published_cache[key]
+
+    portfolio = db.scalar(select(Portfolio).where(Portfolio.slug == key))
+    if (
+        portfolio is None
+        or portfolio.status != PortfolioStatus.PUBLISHED.value
+        or portfolio.current_published_version_id is None
+    ):
+        return None
+
+    version = db.get(PortfolioVersion, portfolio.current_published_version_id)
+    if version is None or not isinstance(version.snapshot_json, dict):
+        logger.error("Published version missing or malformed for portfolio %s", key)
+        return None
+
+    bundle = dict(version.snapshot_json)
+    bundle["portfolio"] = {
+        **(bundle.get("portfolio") or {}),
+        "name": portfolio.name,
+        "slug": portfolio.slug,
+        "description": portfolio.description,
+        "status": portfolio.status,
+        "published_at": portfolio.published_at,
+    }
+    try:
+        validated = PreviewResponse.model_validate(bundle)
+    except ValidationError as exc:
+        logger.error("Published snapshot for portfolio %s failed validation: %s", key, exc)
+        return None
+
+    _published_cache[key] = (time.monotonic(), validated)
+    return validated
+
+
+def list_published_site_summaries(db: Session) -> list[dict[str, Any]]:
+    """Summarize every currently published site for the sitemap index.
+
+    Only portfolios whose status is ``published`` *and* whose active snapshot
+    validates are listed, so sitemap URLs always resolve (drafts never leak).
+    """
+    summaries: list[dict[str, Any]] = []
+    portfolio_slugs = db.scalars(
+        select(Portfolio.slug).where(Portfolio.status == PortfolioStatus.PUBLISHED.value)
+    )
+    for slug in portfolio_slugs:
+        site = get_published_site(db, slug=slug)
+        if site is None:
+            continue
+        summaries.append(
+            {
+                "slug": site.portfolio.slug,
+                "published_at": site.portfolio.published_at,
+                "pages": [
+                    {
+                        "slug": page.slug,
+                        "is_homepage": page.is_homepage,
+                        "updated_at": page.updated_at,
+                    }
+                    for page in site.pages
+                ],
+            }
+        )
+    return summaries
