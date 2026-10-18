@@ -7,7 +7,14 @@
  */
 
 export type SectionFieldKind =
-  "text" | "textarea" | "url" | "boolean" | "select" | "repeater";
+  | "text"
+  | "textarea"
+  | "url"
+  | "boolean"
+  | "select"
+  | "repeater"
+  | "color"
+  | "object";
 
 export interface SectionField {
   name: string;
@@ -30,6 +37,9 @@ export type SectionContent = Record<string, unknown>;
 /** Stored section layout settings, keyed by field name. */
 export type SectionLayout = Record<string, unknown>;
 
+/** Stored section-level style overrides, keyed by field name. */
+export type SectionStyle = Record<string, unknown>;
+
 export interface SectionType {
   type_id: string;
   label: string;
@@ -38,8 +48,10 @@ export interface SectionType {
   schema_version: number;
   content_fields: SectionField[];
   layout_fields: SectionField[];
+  style_fields: SectionField[];
   default_content: SectionContent;
   default_layout: SectionLayout;
+  default_style: SectionStyle;
 }
 
 export interface PageSection {
@@ -51,6 +63,7 @@ export interface PageSection {
   is_visible: boolean;
   content: SectionContent;
   layout: SectionLayout;
+  style: SectionStyle;
   schema_version: number;
   created_at: string;
   updated_at: string;
@@ -62,6 +75,7 @@ export interface SectionCreatePayload {
   is_visible?: boolean;
   content?: SectionContent;
   layout?: SectionLayout;
+  style?: SectionStyle;
 }
 
 export interface SectionUpdatePayload {
@@ -69,4 +83,5 @@ export interface SectionUpdatePayload {
   is_visible?: boolean;
   content?: SectionContent;
   layout?: SectionLayout;
+  style?: SectionStyle;
 }

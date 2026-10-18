@@ -1,9 +1,11 @@
 """Portfolio model.
 
-A portfolio is the top-level, owner-scoped unit of content. In this phase it
-carries metadata only (name, slug, description, status); pages, sections,
-navigation, themes, media, and published snapshots are introduced in later
-phases.
+A portfolio is the top-level, owner-scoped unit of content. It carries metadata
+(name, slug, description, status) plus publication pointers: ``published_at``
+records the last successful publication time and ``current_published_version_id``
+references the active immutable snapshot (``portfolio_versions``). Pages,
+sections, navigation, themes, and media live in their own tables as private
+draft data.
 
 The slug is the public routing key (``/p/{portfolio_slug}``) and is therefore
 unique across the whole platform, not per owner.
@@ -33,6 +35,7 @@ from app.core.slugs import SLUG_MAX_LENGTH
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.portfolio_version import PortfolioVersion
     from app.models.user import User
 
 NAME_MAX_LENGTH = 120
@@ -41,8 +44,9 @@ NAME_MAX_LENGTH = 120
 class PortfolioStatus(StrEnum):
     """Publication state of a portfolio.
 
-    New portfolios start as ``draft``. Publishing is not part of this phase;
-    the value is stored so later phases can act on it without a data migration.
+    New portfolios start as ``draft``. Publishing validates the draft and
+    creates an immutable snapshot in ``portfolio_versions``; unpublishing
+    flips the status back to ``draft`` while keeping the version history.
     """
 
     DRAFT = "draft"
@@ -75,6 +79,20 @@ class Portfolio(Base):
     settings_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    current_published_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "portfolio_versions.id",
+            ondelete="SET NULL",
+            name="fk_portfolios_current_published_version",
+            use_alter=True,
+        ),
+        nullable=True,
+        default=None,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -83,3 +101,12 @@ class Portfolio(Base):
     )
 
     owner: Mapped[User] = relationship(back_populates="portfolios")
+    versions: Mapped[list[PortfolioVersion]] = relationship(
+        back_populates="portfolio",
+        foreign_keys="PortfolioVersion.portfolio_id",
+        order_by="PortfolioVersion.version_number",
+        passive_deletes=True,
+    )
+    current_published_version: Mapped[PortfolioVersion | None] = relationship(
+        foreign_keys=[current_published_version_id]
+    )

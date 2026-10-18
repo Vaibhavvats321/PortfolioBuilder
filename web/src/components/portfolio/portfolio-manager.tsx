@@ -7,6 +7,9 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { PortfolioForm } from "@/components/portfolio/portfolio-form";
 import { PageManager } from "@/components/portfolio/page-manager";
 import { NavigationManager } from "@/components/portfolio/navigation-manager";
+import { PublicationPanel } from "@/components/portfolio/publication-panel";
+import { DesignStudio } from "@/components/design/design-studio";
+import { MediaLibrary } from "@/components/builder/media-library";
 import {
   deletePortfolio,
   fetchPortfolio,
@@ -22,12 +25,14 @@ type ManagerState =
   | { state: "error"; message: string }
   | { state: "loaded"; portfolio: Portfolio };
 
-type ManagerTab = "details" | "pages" | "navigation";
+type ManagerTab = "details" | "pages" | "navigation" | "design" | "media";
 
 const TABS: { id: ManagerTab; label: string }[] = [
   { id: "details", label: "Details" },
   { id: "pages", label: "Pages" },
   { id: "navigation", label: "Navigation" },
+  { id: "design", label: "Design" },
+  { id: "media", label: "Media" },
 ];
 
 export function PortfolioManager() {
@@ -152,7 +157,15 @@ export function PortfolioManager() {
         >
           ← Back to dashboard
         </Link>
-        <h1 className="text-2xl font-semibold">Portfolio management</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold">Portfolio management</h1>
+          <Link
+            href={`/dashboard/portfolios/${portfolioId}/preview`}
+            className={buttonClassName("secondary")}
+          >
+            Open draft preview
+          </Link>
+        </div>
       </header>
 
       {manager.state === "loading" && (
@@ -222,6 +235,13 @@ export function PortfolioManager() {
               </section>
 
               <aside className="space-y-4">
+                <PublicationPanel
+                  portfolio={manager.portfolio}
+                  onChanged={(portfolio) =>
+                    setManager({ state: "loaded", portfolio })
+                  }
+                />
+
                 <section className="rounded-xl border border-rose-200 bg-white p-6 shadow-sm">
                   <h2 className="text-lg font-medium text-rose-700">
                     Delete portfolio
@@ -284,6 +304,20 @@ export function PortfolioManager() {
             <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
               <h2 className="mb-4 text-lg font-medium">Navigation</h2>
               <NavigationManager portfolioId={portfolioId} />
+            </section>
+          ) : null}
+
+          {tab === "design" ? (
+            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              <h2 className="mb-4 text-lg font-medium">Design studio</h2>
+              <DesignStudio portfolioId={portfolioId} />
+            </section>
+          ) : null}
+
+          {tab === "media" ? (
+            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              <h2 className="mb-4 text-lg font-medium">Media Library</h2>
+              <MediaLibrary portfolioId={portfolioId} />
             </section>
           ) : null}
         </div>

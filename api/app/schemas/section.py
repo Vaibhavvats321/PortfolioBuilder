@@ -62,8 +62,10 @@ class SectionTypeSchema(BaseModel):
     schema_version: int
     content_fields: list[SectionFieldSchema]
     layout_fields: list[SectionFieldSchema]
+    style_fields: list[SectionFieldSchema]
     default_content: dict[str, Any]
     default_layout: dict[str, Any]
+    default_style: dict[str, Any]
 
     @classmethod
     def from_definition(cls, definition: SectionDefinition) -> SectionTypeSchema:
@@ -75,8 +77,10 @@ class SectionTypeSchema(BaseModel):
             schema_version=definition.schema_version,
             content_fields=[SectionFieldSchema.from_field(f) for f in definition.content_fields],
             layout_fields=[SectionFieldSchema.from_field(f) for f in definition.layout_fields],
+            style_fields=[SectionFieldSchema.from_field(f) for f in definition.style_fields],
             default_content=definition.default_content(),
             default_layout=definition.default_layout(),
+            default_style=definition.default_style(),
         )
 
 
@@ -92,6 +96,7 @@ class SectionCreate(BaseModel):
     is_visible: bool = True
     content: dict[str, Any] = Field(default_factory=dict)
     layout: dict[str, Any] = Field(default_factory=dict)
+    style: dict[str, Any] = Field(default_factory=dict)
 
 
 class SectionUpdate(BaseModel):
@@ -106,6 +111,7 @@ class SectionUpdate(BaseModel):
     is_visible: bool | None = None
     content: dict[str, Any] | None = None
     layout: dict[str, Any] | None = None
+    style: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _reject_clearing_name(self) -> SectionUpdate:
@@ -127,6 +133,7 @@ class SectionResponse(BaseModel):
     is_visible: bool
     content: dict[str, Any] = Field(validation_alias="content_json")
     layout: dict[str, Any] = Field(validation_alias="layout_json")
+    style: dict[str, Any] = Field(validation_alias="style_json")
     schema_version: int
     created_at: datetime
     updated_at: datetime

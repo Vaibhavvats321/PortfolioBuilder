@@ -64,16 +64,18 @@ def create_section(
     is_visible: bool,
     content: dict[str, Any],
     layout: dict[str, Any],
+    style: dict[str, Any],
 ) -> PageSection:
     """Create a section on ``page``.
 
-    The section type must be registered; ``content`` and ``layout`` are validated
-    against that type (omitted fields take their registry defaults). The section
-    is appended to the end of the page.
+    The section type must be registered; ``content``, ``layout``, and ``style``
+    are validated against that type (omitted fields take their registry
+    defaults). The section is appended to the end of the page.
     """
     definition = _require_definition(section_type)
     validated_content = _validate(definition.validate_content, content)
     validated_layout = _validate(definition.validate_layout, layout)
+    validated_style = _validate(definition.validate_style, style)
 
     section = PageSection(
         page_id=page.id,
@@ -83,6 +85,7 @@ def create_section(
         is_visible=is_visible,
         content_json=validated_content,
         layout_json=validated_layout,
+        style_json=validated_style,
         schema_version=definition.schema_version,
     )
     db.add(section)
@@ -111,6 +114,10 @@ def update_section(db: Session, *, section: PageSection, changes: dict[str, Any]
         if definition is None:
             raise InvalidSectionError("This section type is no longer supported.")
         section.layout_json = _validate(definition.validate_layout, changes["layout"])
+    if "style" in changes:
+        if definition is None:
+            raise InvalidSectionError("This section type is no longer supported.")
+        section.style_json = _validate(definition.validate_style, changes["style"])
 
     db.commit()
     db.refresh(section)
@@ -138,6 +145,7 @@ def duplicate_section(db: Session, *, section: PageSection) -> PageSection:
         is_visible=section.is_visible,
         content_json=dict(section.content_json),
         layout_json=dict(section.layout_json),
+        style_json=dict(section.style_json),
         schema_version=section.schema_version,
     )
     db.add(duplicate)

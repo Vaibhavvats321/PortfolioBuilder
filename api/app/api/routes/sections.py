@@ -81,6 +81,7 @@ def create_page_section(
             is_visible=payload.is_visible,
             content=payload.content,
             layout=payload.layout,
+            style=payload.style,
         )
     except InvalidSectionError as exc:
         raise HTTPException(

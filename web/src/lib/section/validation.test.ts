@@ -104,6 +104,33 @@ describe("validateFieldValue", () => {
       "Show must be true or false.",
     );
   });
+
+  it("validates hex colors and allows an empty override", () => {
+    const color = {
+      name: "text_color",
+      kind: "color" as const,
+      label: "Text color",
+      required: false,
+      max_length: null,
+      options: [],
+      default: null,
+      placeholder: null,
+      help_text: null,
+      item_label: null,
+      max_items: 50,
+      fields: [],
+    };
+    expect(validateFieldValue(color, "")).toBeUndefined();
+    expect(validateFieldValue(color, "#fff")).toBeUndefined();
+    expect(validateFieldValue(color, "#1a2b3c")).toBeUndefined();
+    expect(validateFieldValue(color, "#12")).toContain("hex color");
+    expect(validateFieldValue(color, "red")).toContain("hex color");
+
+    const requiredColor = { ...color, label: "Primary", required: true };
+    expect(validateFieldValue(requiredColor, "  ")).toBe(
+      "Primary is required.",
+    );
+  });
 });
 
 describe("validateSectionFields", () => {
@@ -173,5 +200,94 @@ describe("validateSectionFields", () => {
   it("rejects non-list repeater values", () => {
     const errors = validateSectionFields([repeater], { buttons: "nope" });
     expect(errors["buttons"]).toBe("Buttons must be a list.");
+  });
+});
+
+describe("validateSectionFields responsive overrides", () => {
+  const spacingField = {
+    name: "spacing",
+    kind: "select" as const,
+    label: "Vertical spacing",
+    required: false,
+    max_length: null,
+    options: ["inherit", "none", "small", "medium", "large", "xlarge"],
+    default: "inherit",
+    placeholder: null,
+    help_text: null,
+    item_label: null,
+    max_items: 50,
+    fields: [],
+  };
+  const colorField = {
+    name: "background_color",
+    kind: "color" as const,
+    label: "Background color",
+    required: false,
+    max_length: null,
+    options: [],
+    default: null,
+    placeholder: null,
+    help_text: null,
+    item_label: null,
+    max_items: 50,
+    fields: [],
+  };
+  const responsiveField = {
+    name: "responsive_override",
+    kind: "object" as const,
+    label: "Responsive Override",
+    required: false,
+    max_length: null,
+    options: [],
+    default: null,
+    placeholder: null,
+    help_text: null,
+    item_label: null,
+    max_items: 50,
+    fields: [spacingField, colorField],
+  };
+
+  function validate(value: unknown) {
+    return validateSectionFields([responsiveField], {
+      responsive_override: value,
+    });
+  }
+
+  it("accepts the inherit mapping and partial entries", () => {
+    expect(validate({ desktop: null, tablet: null, mobile: null })).toEqual({});
+    // Partial entries mirror the backend's validate_partial_fields: omitted
+    // fields stay unset so they track the section's base style.
+    expect(validate({ mobile: {} })).toEqual({});
+    expect(validate({ mobile: { spacing: "large" } })).toEqual({});
+    expect(
+      validate({ desktop: null, tablet: { background_color: "#111111" } }),
+    ).toEqual({});
+    expect(validate(null)).toEqual({});
+  });
+
+  it("validates only the keys present in an entry", () => {
+    const errors = validate({ mobile: { spacing: "huge" } });
+    expect(errors["responsive_override.mobile.spacing"]).toContain(
+      "must be one of",
+    );
+    const colorErrors = validate({ tablet: { background_color: "red" } });
+    expect(
+      colorErrors["responsive_override.tablet.background_color"],
+    ).toContain("hex color");
+  });
+
+  it("rejects unknown breakpoints, unknown fields, and bad shapes", () => {
+    expect(validate({ wide: {} })["responsive_override"]).toContain(
+      "unknown breakpoint(s): wide",
+    );
+    expect(
+      validate({ mobile: { bogus: 1 } })["responsive_override.mobile"],
+    ).toContain("unknown field(s): bogus");
+    expect(validate("nope")["responsive_override"]).toBe(
+      "Responsive Override must be an object.",
+    );
+    expect(validate({ mobile: "nope" })["responsive_override.mobile"]).toBe(
+      "Override must be an object or null.",
+    );
   });
 });

@@ -3,29 +3,47 @@
 import { Button } from "@/components/ui/button";
 import { TextArea } from "@/components/ui/text-area";
 import { TextField } from "@/components/ui/text-field";
+import { MediaPickerButton } from "@/components/builder/media-picker";
+import { ResponsiveOverrideEditor } from "@/components/builder/responsive-override-editor";
 import { defaultForField } from "@/lib/section/defaults";
+import { mediaFileUrl } from "@/lib/api/media";
+import type { MediaAsset } from "@/types/media";
 import type { SectionContent, SectionField } from "@/types/section";
 
 interface FieldControlProps {
   field: SectionField;
   value: unknown;
   error?: string;
+  /** Dotted-path error map for nested editors (responsive overrides). */
+  errors?: Record<string, string>;
+  /** Sibling container values so inherited override keys display their base. */
+  containerValues?: SectionContent;
   onChange: (value: unknown) => void;
   idBase: string;
   prefix: string;
+  portfolioId?: string;
+  onImagePicked?: (asset: MediaAsset) => void;
 }
 
-function pathFor(prefix: string, name: string): string {
+export function pathFor(prefix: string, name: string): string {
   return prefix ? `${prefix}.${name}` : name;
 }
 
-function FieldControl({
+/**
+ * Renders the control for a field. Wrapped by `FieldControl` so that the
+ * optional `help_text` is shown consistently for every field kind.
+ */
+function renderFieldControl({
   field,
   value,
   error,
+  errors,
+  containerValues,
   onChange,
   idBase,
   prefix,
+  portfolioId,
+  onImagePicked,
 }: FieldControlProps) {
   const id = `${idBase}-${pathFor(prefix, field.name).replace(/\./g, "-")}`;
   switch (field.kind) {
@@ -53,14 +71,22 @@ function FieldControl({
       );
     case "url":
       return (
-        <TextField
-          id={id}
-          label={field.label}
-          value={typeof value === "string" ? value : ""}
-          placeholder={field.placeholder ?? "https://example.com"}
-          onChange={(event) => onChange(event.target.value)}
-          error={error}
-        />
+        <>
+          <TextField
+            id={id}
+            label={field.label}
+            value={typeof value === "string" ? value : ""}
+            placeholder={field.placeholder ?? "https://example.com"}
+            onChange={(event) => onChange(event.target.value)}
+            error={error}
+          />
+          {portfolioId && field.name === "image_url" && onImagePicked ? (
+            <MediaPickerButton
+              portfolioId={portfolioId}
+              onSelect={onImagePicked}
+            />
+          ) : null}
+        </>
       );
     case "boolean":
       return (
@@ -105,12 +131,37 @@ function FieldControl({
           ) : null}
         </label>
       );
+    case "color":
+      return (
+        <ColorControl
+          id={id}
+          field={field}
+          value={typeof value === "string" ? value : ""}
+          error={error}
+          onChange={onChange}
+        />
+      );
     case "repeater":
       return (
         <RepeaterControl
           field={field}
           value={Array.isArray(value) ? value : []}
           error={error}
+          errors={errors}
+          onChange={onChange}
+          idBase={idBase}
+          prefix={prefix}
+          portfolioId={portfolioId}
+        />
+      );
+    case "object":
+      return (
+        <ResponsiveOverrideEditor
+          field={field}
+          value={value}
+          error={error}
+          errors={errors ?? {}}
+          containerValues={containerValues ?? {}}
           onChange={onChange}
           idBase={idBase}
           prefix={prefix}
@@ -121,13 +172,91 @@ function FieldControl({
   }
 }
 
+function FieldControl(props: FieldControlProps) {
+  return (
+    <div className="space-y-1">
+      {renderFieldControl(props)}
+      {props.field.help_text ? (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {props.field.help_text}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+interface ColorControlProps {
+  id: string;
+  field: SectionField;
+  value: string;
+  error?: string;
+  onChange: (value: string) => void;
+}
+
+function ColorControl({
+  id,
+  field,
+  value,
+  error,
+  onChange,
+}: ColorControlProps) {
+  const swatch = HEX_COLOR.test(value) ? value : "#000000";
+  return (
+    <div className="space-y-1 text-sm">
+      <label
+        htmlFor={id}
+        className="block font-medium text-slate-700 dark:text-slate-300"
+      >
+        {field.label}
+      </label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          aria-label={`${field.label} swatch`}
+          value={swatch}
+          onChange={(event) => onChange(event.target.value)}
+          className="h-9 w-12 cursor-pointer rounded border border-slate-300 bg-white dark:border-slate-700"
+        />
+        <input
+          id={id}
+          type="text"
+          value={value}
+          placeholder={field.placeholder ?? "#rrggbb (empty inherits)"}
+          onChange={(event) => onChange(event.target.value)}
+          aria-invalid={error ? true : undefined}
+          className={[
+            "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 shadow-sm",
+            "focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:outline-none",
+            "dark:bg-slate-950 dark:text-slate-100",
+            error
+              ? "border-rose-500"
+              : "border-slate-300 dark:border-slate-700",
+          ].join(" ")}
+        />
+        {value ? (
+          <Button variant="secondary" onClick={() => onChange("")}>
+            Clear
+          </Button>
+        ) : null}
+      </div>
+      {error ? (
+        <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>
+      ) : null}
+    </div>
+  );
+}
+
 interface RepeaterControlProps {
   field: SectionField;
   value: unknown[];
   error?: string;
+  errors?: Record<string, string>;
   onChange: (value: unknown[]) => void;
   idBase: string;
   prefix: string;
+  portfolioId?: string;
 }
 
 function makeKey(index: number): string {
@@ -141,9 +270,11 @@ function RepeaterControl({
   field,
   value,
   error,
+  errors,
   onChange,
   idBase,
   prefix,
+  portfolioId,
 }: RepeaterControlProps) {
   const items = value;
   function addItem() {
@@ -171,6 +302,15 @@ function RepeaterControl({
       const base =
         item && typeof item === "object" ? (item as SectionContent) : {};
       return { ...base, [childName]: childValue };
+    });
+    onChange(next);
+  }
+  function updateItemBatch(index: number, updates: Record<string, unknown>) {
+    const next = items.map((item, i) => {
+      if (i !== index) return item;
+      const base =
+        item && typeof item === "object" ? (item as SectionContent) : {};
+      return { ...base, ...updates };
     });
     onChange(next);
   }
@@ -228,10 +368,12 @@ function RepeaterControl({
                 <SectionFieldsForm
                   fields={field.fields}
                   values={itemValues}
-                  errors={{}} // errors passed from parent; parent keys include full path
+                  errors={errors ?? {}}
                   onChange={(childName, childValue) =>
                     updateItem(index, childName, childValue)
                   }
+                  onPickImage={(updates) => updateItemBatch(index, updates)}
+                  portfolioId={portfolioId}
                   idPrefix={idBase}
                   prefix={itemPrefix}
                 />
@@ -249,6 +391,14 @@ interface SectionFieldsFormProps {
   values: SectionContent;
   errors: Record<string, string>;
   onChange: (name: string, value: unknown) => void;
+  /**
+   * Applies a media selection to several keys at once (image URL plus its
+   * sibling alt text). The inspector passes a batch handler backed by a
+   * functional state update; without it the updates fall back to sequential
+   * `onChange` calls.
+   */
+  onPickImage?: (updates: Record<string, unknown>) => void;
+  portfolioId?: string;
   idPrefix: string;
   prefix: string;
 }
@@ -258,9 +408,31 @@ export function SectionFieldsForm({
   values,
   errors,
   onChange,
+  onPickImage,
+  portfolioId,
   idPrefix,
   prefix,
 }: SectionFieldsFormProps) {
+  function makeImagePickHandler(
+    field: SectionField,
+  ): ((asset: MediaAsset) => void) | undefined {
+    if (!portfolioId || field.kind !== "url") return undefined;
+    if (field.name !== "image_url") return undefined;
+    return (asset) => {
+      const updates: Record<string, unknown> = {
+        [field.name]: mediaFileUrl(asset.id),
+      };
+      if (fields.some((sibling) => sibling.name === "image_alt")) {
+        updates.image_alt = asset.alt_text ?? "";
+      }
+      if (onPickImage) {
+        onPickImage(updates);
+      } else {
+        Object.entries(updates).forEach(([key, next]) => onChange(key, next));
+      }
+    };
+  }
+
   return (
     <div className="space-y-3">
       {fields.map((field) => {
@@ -271,7 +443,11 @@ export function SectionFieldsForm({
             field={field}
             value={values[field.name]}
             error={errors[path]}
+            errors={errors}
+            containerValues={values}
             onChange={(value) => onChange(field.name, value)}
+            onImagePicked={makeImagePickHandler(field)}
+            portfolioId={portfolioId}
             idBase={idPrefix}
             prefix={prefix}
           />

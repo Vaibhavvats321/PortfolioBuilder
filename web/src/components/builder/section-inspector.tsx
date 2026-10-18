@@ -1,23 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { TextField } from "@/components/ui/text-field";
 import { SectionFieldsForm } from "@/components/builder/section-fields";
 import { validateSectionFields } from "@/lib/section/validation";
-import type { PageSection, SectionContent, SectionType } from "@/types/section";
+import type {
+  PageSection,
+  SectionContent,
+  SectionStyle,
+  SectionType,
+} from "@/types/section";
+
+/** Form state mirrored to the editor toolbar (save status, Save Draft). */
+export interface SectionInspectorFormState {
+  dirty: boolean;
+  hasErrors: boolean;
+}
 
 interface SectionInspectorProps {
   section: PageSection | null;
   sectionTypes: SectionType[];
+  portfolioId: string;
+  /** Persists the draft. Resolves `true` only when the save succeeded. */
   onSave: (patch: {
     name?: string;
     is_visible?: boolean;
     content?: SectionContent;
     layout?: SectionLayout;
-  }) => Promise<void>;
+    style?: SectionStyle;
+  }) => Promise<boolean>;
   saving: boolean;
   error: string | null;
+  onFormStateChange?: (state: SectionInspectorFormState) => void;
+  /** Incremented by the editor toolbar to flush this inspector's draft. */
+  saveRequest?: number;
 }
 
 type SectionLayout = Record<string, unknown>;
@@ -27,18 +44,27 @@ interface Draft {
   isVisible: boolean;
   content: SectionContent;
   layout: SectionLayout;
+  style: SectionStyle;
 }
 
 export function SectionInspector({
   section,
   sectionTypes,
+  portfolioId,
   onSave,
   saving,
   error,
+  onFormStateChange,
+  saveRequest,
 }: SectionInspectorProps) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [dirty, setDirty] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const saveRef = useRef<() => void>(() => {});
+  const lastReported = useRef<SectionInspectorFormState>({
+    dirty: false,
+    hasErrors: false,
+  });
 
   useEffect(() => {
     if (!section) {
@@ -55,6 +81,7 @@ export function SectionInspector({
         isVisible: section.is_visible,
         content: { ...section.content },
         layout: { ...section.layout },
+        style: { ...section.style },
       });
       setDirty(false);
       setLocalError(null);
@@ -77,11 +104,42 @@ export function SectionInspector({
     return validateSectionFields(sectionType.layout_fields, draft.layout);
   }, [draft, sectionType]);
 
+  const styleErrors = useMemo(() => {
+    if (!draft || !sectionType) return {};
+    return validateSectionFields(sectionType.style_fields, draft.style);
+  }, [draft, sectionType]);
+
   const allErrors = useMemo(
-    () => ({ ...contentErrors, ...layoutErrors }),
-    [contentErrors, layoutErrors],
+    () => ({ ...contentErrors, ...layoutErrors, ...styleErrors }),
+    [contentErrors, layoutErrors, styleErrors],
   );
   const hasErrors = Object.keys(allErrors).length > 0;
+
+  // Mirror dirty/validation state to the toolbar. Only report when the values
+  // actually change so a fresh callback identity cannot loop the parent.
+  useEffect(() => {
+    if (
+      lastReported.current.dirty === dirty &&
+      lastReported.current.hasErrors === hasErrors
+    ) {
+      return;
+    }
+    lastReported.current = { dirty, hasErrors };
+    onFormStateChange?.({ dirty, hasErrors });
+  }, [dirty, hasErrors, onFormStateChange]);
+
+  // Refresh the save trigger after every render so it always calls the
+  // latest handleSave closure (fresh draft and validation state).
+  useEffect(() => {
+    saveRef.current = () => {
+      void handleSave();
+    };
+  });
+
+  useEffect(() => {
+    if (!saveRequest) return;
+    saveRef.current();
+  }, [saveRequest]);
 
   function updateDraft(updates: Partial<Draft>) {
     setDraft((d) => (d ? { ...d, ...updates } : null));
@@ -89,19 +147,41 @@ export function SectionInspector({
     setLocalError(null);
   }
 
-  async function handleSave() {
-    if (!section || !draft || !sectionType) return;
+  /**
+   * Applies a media selection to a whole container (content/layout/style) in
+   * one functional update, so the image URL and its sibling alt text never
+   * overwrite each other through stale closures.
+   */
+  function pickImageInto(
+    container: "content" | "layout" | "style",
+    updates: Record<string, unknown>,
+  ) {
+    setDraft((d) => {
+      if (!d) return null;
+      const next: Draft = { ...d };
+      next[container] = { ...d[container], ...updates };
+      return next;
+    });
+    setDirty(true);
+    setLocalError(null);
+  }
+
+  async function handleSave(): Promise<boolean> {
+    if (!section || !draft || !sectionType) return false;
     if (hasErrors) {
       setLocalError("Please fix the validation errors before saving.");
-      return;
+      return false;
     }
-    await onSave({
+    if (!dirty) return true;
+    const saved = await onSave({
       name: draft.name,
       is_visible: draft.isVisible,
       content: draft.content,
       layout: draft.layout,
+      style: draft.style,
     });
-    setDirty(false);
+    if (saved) setDirty(false);
+    return saved;
   }
 
   function handleReset() {
@@ -111,6 +191,7 @@ export function SectionInspector({
       isVisible: section.is_visible,
       content: { ...section.content },
       layout: { ...section.layout },
+      style: { ...section.style },
     });
     setDirty(false);
     setLocalError(null);
@@ -161,6 +242,8 @@ export function SectionInspector({
             onChange={(name, value) =>
               updateDraft({ content: { ...draft.content, [name]: value } })
             }
+            onPickImage={(updates) => pickImageInto("content", updates)}
+            portfolioId={portfolioId}
             idPrefix={`content-${section.id}`}
             prefix=""
           />
@@ -179,7 +262,32 @@ export function SectionInspector({
             onChange={(name, value) =>
               updateDraft({ layout: { ...draft.layout, [name]: value } })
             }
+            onPickImage={(updates) => pickImageInto("layout", updates)}
+            portfolioId={portfolioId}
             idPrefix={`layout-${section.id}`}
+            prefix=""
+          />
+        </section>
+      )}
+
+      {sectionType.style_fields.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Style overrides
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Optional. Leave as inherit to use the portfolio theme.
+          </p>
+          <SectionFieldsForm
+            fields={sectionType.style_fields}
+            values={draft.style}
+            errors={styleErrors}
+            onChange={(name, value) =>
+              updateDraft({ style: { ...draft.style, [name]: value } })
+            }
+            onPickImage={(updates) => pickImageInto("style", updates)}
+            portfolioId={portfolioId}
+            idPrefix={`style-${section.id}`}
             prefix=""
           />
         </section>

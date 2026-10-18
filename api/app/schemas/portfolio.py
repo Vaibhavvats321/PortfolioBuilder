@@ -117,5 +117,7 @@ class PortfolioResponse(BaseModel):
     description: str | None
     status: PortfolioStatus
     settings_json: dict[str, Any]
+    published_at: datetime | None = None
+    current_published_version_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime

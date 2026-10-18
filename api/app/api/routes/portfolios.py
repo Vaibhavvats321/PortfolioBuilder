@@ -17,6 +17,7 @@ from app.models.portfolio import Portfolio
 from app.models.session import Session as AuthSession
 from app.models.user import User
 from app.schemas.portfolio import PortfolioCreate, PortfolioResponse, PortfolioUpdate
+from app.schemas.publication import PreviewResponse, PublishResponse
 from app.services.portfolios import (
     InvalidPortfolioError,
     SlugConflictError,
@@ -24,6 +25,12 @@ from app.services.portfolios import (
     delete_portfolio,
     list_portfolios,
     update_portfolio,
+)
+from app.services.publication import (
+    PublicationValidationError,
+    get_draft_snapshot,
+    publish_portfolio,
+    unpublish_portfolio,
 )
 
 router = APIRouter(prefix="/portfolios", tags=["portfolios"])
@@ -105,3 +112,59 @@ def delete_my_portfolio(
     """Delete one of the authenticated user's portfolios."""
     delete_portfolio(db, portfolio=portfolio)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{portfolio_id}/preview", response_model=PreviewResponse)
+def preview_my_portfolio(
+    portfolio: Portfolio = Depends(get_owned_portfolio),
+    db: Session = Depends(get_db),
+) -> PreviewResponse:
+    """Return the live draft bundle for the owner's protected preview.
+
+    Requires an authenticated session (ownership checked on every request)
+    and never requires a CSRF token because it is a read. The consumer must
+    render it behind a ``noindex`` preview page with an unmistakable draft
+    banner; no published state is exposed or modified here.
+    """
+    return PreviewResponse.model_validate(get_draft_snapshot(db, portfolio=portfolio))
+
+
+@router.post("/{portfolio_id}/publish", response_model=PublishResponse)
+def publish_my_portfolio(
+    current_user: User = Depends(get_current_user),
+    portfolio: Portfolio = Depends(get_owned_portfolio),
+    _csrf: AuthSession = Depends(require_csrf),
+    db: Session = Depends(get_db),
+) -> PublishResponse:
+    """Validate and publish the owner's portfolio as one atomic operation.
+
+    A validation failure returns 422 with every problem listed and leaves any
+    previously published version active. The public path is returned only
+    after the snapshot commit succeeded.
+    """
+    try:
+        published, version = publish_portfolio(db, portfolio=portfolio, actor=current_user)
+    except PublicationValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from None
+    return PublishResponse(
+        status=published.status,
+        published_at=version.published_at,
+        version_number=version.version_number,
+        public_path=f"/p/{published.slug}",
+    )
+
+
+@router.post("/{portfolio_id}/unpublish", response_model=PortfolioResponse)
+def unpublish_my_portfolio(
+    portfolio: Portfolio = Depends(get_owned_portfolio),
+    _csrf: AuthSession = Depends(require_csrf),
+    db: Session = Depends(get_db),
+) -> Portfolio:
+    """Return the owner's portfolio to draft state.
+
+    Version history is retained. Public URLs of an unpublished portfolio
+    answer 404 (they must never fall back to draft content).
+    """
+    return unpublish_portfolio(db, portfolio=portfolio)

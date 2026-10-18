@@ -1,5 +1,7 @@
 import { apiBaseUrl } from "@/lib/config";
 
+export { apiBaseUrl };
+
 /**
  * Name of the non-HTTP-only CSRF cookie set by the backend. It must match the
  * backend's `CSRF_COOKIE_NAME` setting. The value is echoed back in the
@@ -59,7 +61,11 @@ export async function apiFetch<T>(
 
   const headers = new Headers(init?.headers);
   headers.set("Accept", "application/json");
-  if (init?.body != null && !headers.has("Content-Type")) {
+  // FormData carries its own multipart boundary, so the browser must set the
+  // Content-Type header; forcing JSON here would break file uploads.
+  const isFormData =
+    typeof FormData !== "undefined" && init?.body instanceof FormData;
+  if (init?.body != null && !isFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (method !== "GET" && method !== "HEAD") {

@@ -7,13 +7,15 @@ repository is a monorepo containing:
 - `api/` — FastAPI backend, the authoritative API and business-logic layer.
 - PostgreSQL — source of truth for editable data.
 
-> **Current status: Phase 3 (pages and navigation management).**
+> **Current status: Phase 5 (visual editor, themes, and design studio).**
 > The authentication foundation, portfolio CRUD (owner-scoped, CSRF-protected,
-> slug validation), and per-portfolio pages and navigation (starter pages, page
-> CRUD/ordering/homepage assignment, navigation replace-and-order) are complete.
-> The visual editor/sections, themes, media, and publishing are **not**
-> implemented yet. See [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) for the full
-> product and engineering specification.
+> slug validation), per-portfolio pages and navigation, the visual section editor
+> (typed section registry, per-section content/layout/style), and the theme +
+> design studio (validated design tokens, global layout, section-level style
+> overrides, and starter templates) are complete. Media, the public renderer, and
+> publishing are **not** implemented yet. See
+> [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) for the full product and engineering
+> specification.
 
 ## Repository layout
 
@@ -29,12 +31,16 @@ PortfolioBuilder/
         (auth)/          Login and registration pages
       components/         Shared UI components
         auth/            Authentication forms and status panel
+        builder/         Section editor (list, library, inspector, preview)
+        design/          Theme design studio, preview, and template gallery
         portfolio/       Portfolio, page, and navigation managers
         ui/              Reusable UI primitives (button, text field)
       lib/api/            Typed API client
       lib/auth/          Client-side validation helpers
       lib/page/          Page and navigation validation helpers
       lib/portfolio/     Portfolio validation helpers
+      lib/section/       Section field validation and defaults
+      lib/theme/         Theme fonts, contrast, and preview-style helpers
       types/              Shared TypeScript types
   api/                   FastAPI application
     app/
@@ -42,9 +48,11 @@ PortfolioBuilder/
       core/config.py      Settings (pydantic-settings)
       core/security.py    Password hashing and token helpers
       db/                 SQLAlchemy base, engine, and session management
-      models/             ORM models (users, sessions, portfolios, pages, navigation)
+      models/             ORM models (users, sessions, portfolios, pages, navigation, sections, themes)
       schemas/            Pydantic request/response schemas
-      services/           Business logic (auth, sessions, portfolios, pages, navigation)
+      sections/           Section type registry and shared field engine
+      theme/              Theme token/component registry and templates
+      services/           Business logic (auth, sessions, portfolios, pages, navigation, sections, themes)
       api/routes/         API route modules
       api/deps.py         Reusable auth/CSRF dependencies
       tests/              pytest suite
@@ -171,6 +179,49 @@ Page and navigation design notes:
   validated against the portfolio before the swap. Deleting a page cascades to
   any navigation items that referenced it.
 
+### Sections, themes, and the design studio
+
+Phase 4 adds the visual section editor and Phase 5 adds themes. Sections are
+described once in a typed registry (`api/app/sections/registry.py`); defaults,
+backend validation, and the editor controls are all derived from those
+descriptors, so no section shape is hardcoded in the frontend. Each section
+stores validated `content`, `layout`, and `style` JSON. The theme registry
+(`api/app/theme/registry.py`) drives the design studio the same way.
+
+| Method | Path                                             | Description                                            |
+| ------ | ------------------------------------------------ | ------------------------------------------------------ |
+| GET    | `/section-types`                                 | List section type descriptors (200)                    |
+| GET    | `/pages/{page_id}/sections`                      | List a page's sections (200/404; auth)                 |
+| POST   | `/pages/{page_id}/sections`                      | Create a section (201/404/422; auth + CSRF)            |
+| PUT    | `/pages/{page_id}/sections/order`                | Reorder sections (200/404/422; auth + CSRF)            |
+| GET    | `/sections/{section_id}`                         | Get one owned section (200/404; auth)                  |
+| PATCH  | `/sections/{section_id}`                         | Update a section (200/404/422; auth + CSRF)            |
+| DELETE | `/sections/{section_id}`                         | Delete a section (204/404; auth + CSRF)                |
+| POST   | `/sections/{section_id}/duplicate`               | Duplicate a section (201/404; auth + CSRF)             |
+| GET    | `/theme/options`                                 | Theme token/layout descriptors + defaults (200; auth)  |
+| GET    | `/portfolios/{id}/theme`                         | Get theme tokens + components (200/404; auth)          |
+| PUT    | `/portfolios/{id}/theme`                         | Replace theme tokens (200/404/422; auth + CSRF)        |
+| GET    | `/portfolios/{id}/global-layout`                 | Get global layout components (200/404; auth)           |
+| PUT    | `/portfolios/{id}/global-layout`                 | Replace layout components (200/404/422; auth + CSRF)   |
+| GET    | `/templates`                                     | List starter templates (200; auth)                     |
+| POST   | `/portfolios/{id}/templates/{template_id}/apply` | Apply a template to a portfolio's design (200/404; auth + CSRF) |
+
+Section, theme, and template design notes:
+
+- A section's `style` overrides (background, text color, spacing, width, radius,
+  shadow, border) default to `inherit`; concrete values are validated against the
+  shared field engine, and colors are restricted to hex values.
+- Theme tokens (colors, typography, spacing, borders, buttons, cards, links,
+  background) and global-layout components (header, footer, sidebar, branding,
+  social) are stored together on one `theme_configs` row per portfolio and are
+  validated as a whole: unknown groups/fields are rejected and missing groups are
+  filled from defaults, so a partial design never persists an incomplete
+  document.
+- Applying a template replaces the design only (tokens + components); it never
+  modifies page or section content.
+- Themes are owner-scoped and isolated per portfolio: two portfolios can use
+  different themes and layouts.
+
 Design notes:
 
 - Passwords are hashed with Argon2 via `pwdlib`; hashes and raw session tokens
@@ -208,8 +259,10 @@ pnpm dev
 - The frontend provides login/registration, an account panel, and a dashboard
   for creating, listing, viewing, updating, and deleting portfolios. Each
   portfolio page has tabs to manage its metadata, pages (create/edit/reorder/
-  homepage visibility), and navigation. All credentialed requests include
-  cookies and the CSRF header for state-changing operations.
+  homepage visibility), navigation, and design (theme tokens, global layout, and
+  starter templates). The page editor adds, edits, reorders, and previews
+  sections, including per-section style overrides. All credentialed requests
+  include cookies and the CSRF header for state-changing operations.
 
 ### Frontend commands
 
@@ -250,7 +303,11 @@ cross-user isolation, slug validation/uniqueness, pagination validation, and
 CSRF/session authorization), and pages/navigation (starter-page seeding, page
 CRUD and ordering, homepage assignment/uniqueness/delete guard, page slug
 uniqueness per portfolio, navigation replace/edit/reorder and destination
-validation, cascade cleanup, and database constraint enforcement).
+validation, cascade cleanup, and database constraint enforcement), and the
+visual editor and themes (section-type descriptors, section CRUD/ordering/
+duplication, per-section content/layout/style validation, theme options and
+token/component validation, global-layout persistence, template listing and
+application, per-portfolio theme isolation, and ownership enforcement).
 
 Tests run against a separate database derived from `DATABASE_URL` by appending
 `_test` (override with `TEST_DATABASE_URL`). The fixtures refuse to run against

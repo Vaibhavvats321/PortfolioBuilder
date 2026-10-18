@@ -30,3 +30,14 @@ body {
     Arial,
     sans-serif;
 }
+
+/* Theme preview links read their colour tokens from CSS variables set on the
+   preview root, so the link hover colour is demonstrated without an inline
+   style that would win over the hover state. Scoped to the preview only. */
+.pb-preview-link {
+  color: var(--pb-link);
+}
+
+.pb-preview-link:hover {
+  color: var(--pb-link-hover);
+}

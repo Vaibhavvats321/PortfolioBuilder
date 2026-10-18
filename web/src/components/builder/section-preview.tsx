@@ -1,21 +1,79 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
+
+import {
+  DEFAULT_BREAKPOINT,
+  resolveSectionStyle,
+  type ResponsiveBreakpoint,
+} from "@/lib/section/responsive";
+import { sectionStyleToCss, sectionTextStyle } from "@/lib/theme/style";
 import type { PageSection, SectionType } from "@/types/section";
 
 export interface SectionPreviewProps {
   section: PageSection;
   sectionType?: SectionType;
+  /** Breakpoint used to resolve responsive style overrides. */
+  breakpoint?: ResponsiveBreakpoint;
+}
+
+/**
+ * Preview frame widths so the selected breakpoint is visible while editing:
+ * desktop fills the panel, tablet and mobile constrain it to the device width
+ * the responsive overrides target.
+ */
+const PREVIEW_MAX_WIDTH: Record<ResponsiveBreakpoint, string> = {
+  desktop: "100%",
+  tablet: "768px",
+  mobile: "375px",
+};
+
+/**
+ * Shared preview surface. It applies the section's stored style overrides
+ * (background, text color, spacing, width, radius, shadow, border) so the
+ * inspector's "Style overrides" controls are reflected in the editor preview.
+ * `"inherit"` values produce no override and keep the neutral preview styling.
+ *
+ * Renderers also spread `sectionTextStyle(section)` over their headings and
+ * paragraphs: the card only sets the inherited color, while preview text
+ * carries its own color classes, so the override has to sit on the elements
+ * themselves. Elements that pair a background with a contrasting text color
+ * (such as the hero availability badge) intentionally skip it.
+ */
+function PreviewCard({
+  section,
+  children,
+  compact = false,
+}: {
+  section: PageSection;
+  children: ReactNode;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      style={sectionStyleToCss(section.style)}
+      className={`rounded-md border border-slate-200 bg-white ${compact ? "p-4" : "p-6"} dark:border-slate-700 dark:bg-slate-900`}
+    >
+      {children}
+    </div>
+  );
 }
 
 export function UnknownSectionRenderer({ section }: SectionPreviewProps) {
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-      <p className="font-medium text-slate-700 dark:text-slate-200">
+    <PreviewCard section={section} compact>
+      <p
+        className="font-medium text-slate-700 dark:text-slate-200"
+        style={textStyle}
+      >
         {section.name}
       </p>
-      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+      <p
+        className="mt-1 text-sm text-slate-500 dark:text-slate-400"
+        style={textStyle}
+      >
         Unsupported section type: {section.section_type}
       </p>
-    </div>
+    </PreviewCard>
   );
 }
 
@@ -33,18 +91,28 @@ export function HeroRenderer({ section }: SectionPreviewProps) {
     typeof content.availability_text === "string"
       ? content.availability_text
       : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-xl font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
       {subheading ? (
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+        <p
+          className="mt-2 text-sm text-slate-600 dark:text-slate-400"
+          style={textStyle}
+        >
           {subheading}
         </p>
       ) : null}
       {body ? (
-        <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">
+        <p
+          className="mt-3 text-sm text-slate-700 dark:text-slate-200"
+          style={textStyle}
+        >
           {body}
         </p>
       ) : null}
@@ -53,7 +121,7 @@ export function HeroRenderer({ section }: SectionPreviewProps) {
           {availabilityText}
         </span>
       ) : null}
-    </div>
+    </PreviewCard>
   );
 }
 
@@ -61,17 +129,24 @@ export function RichTextRenderer({ section }: SectionPreviewProps) {
   const content = section.content as Record<string, unknown>;
   const heading = typeof content.heading === "string" ? content.heading : "";
   const body = typeof content.body === "string" ? content.body : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
       {body ? (
-        <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
+        <p
+          className="mt-2 text-sm text-slate-700 dark:text-slate-200"
+          style={textStyle}
+        >
           {body}
         </p>
       ) : null}
-    </div>
+    </PreviewCard>
   );
 }
 
@@ -79,17 +154,24 @@ export function CallToActionRenderer({ section }: SectionPreviewProps) {
   const content = section.content as Record<string, unknown>;
   const heading = typeof content.heading === "string" ? content.heading : "";
   const body = typeof content.body === "string" ? content.body : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
       {body ? (
-        <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
+        <p
+          className="mt-2 text-sm text-slate-700 dark:text-slate-200"
+          style={textStyle}
+        >
           {body}
         </p>
       ) : null}
-    </div>
+    </PreviewCard>
   );
 }
 
@@ -99,17 +181,24 @@ export function ContactDetailsRenderer({ section }: SectionPreviewProps) {
   const email = typeof content.email === "string" ? content.email : "";
   const phone = typeof content.phone === "string" ? content.phone : "";
   const location = typeof content.location === "string" ? content.location : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
-      <div className="mt-2 space-y-1 text-sm text-slate-700 dark:text-slate-200">
+      <div
+        className="mt-2 space-y-1 text-sm text-slate-700 dark:text-slate-200"
+        style={textStyle}
+      >
         {email ? <p>Email: {email}</p> : null}
         {phone ? <p>Phone: {phone}</p> : null}
         {location ? <p>Location: {location}</p> : null}
       </div>
-    </div>
+    </PreviewCard>
   );
 }
 
@@ -121,9 +210,13 @@ export function ImageTextRenderer({ section }: SectionPreviewProps) {
     typeof content.image_url === "string" ? content.image_url : "";
   const imageAlt =
     typeof content.image_alt === "string" ? content.image_alt : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
       {imageUrl ? (
@@ -135,129 +228,185 @@ export function ImageTextRenderer({ section }: SectionPreviewProps) {
         />
       ) : null}
       {body ? (
-        <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
+        <p
+          className="mt-2 text-sm text-slate-700 dark:text-slate-200"
+          style={textStyle}
+        >
           {body}
         </p>
       ) : null}
-    </div>
+    </PreviewCard>
   );
 }
 
 export function ImageGalleryRenderer({ section }: SectionPreviewProps) {
   const content = section.content as Record<string, unknown>;
   const heading = typeof content.heading === "string" ? content.heading : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+      <p
+        className="mt-2 text-sm text-slate-500 dark:text-slate-400"
+        style={textStyle}
+      >
         {Array.isArray(content.images) ? content.images.length : 0} image(s)
       </p>
-    </div>
+    </PreviewCard>
   );
 }
 
 export function ProjectGridRenderer({ section }: SectionPreviewProps) {
   const content = section.content as Record<string, unknown>;
   const heading = typeof content.heading === "string" ? content.heading : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+      <p
+        className="mt-2 text-sm text-slate-500 dark:text-slate-400"
+        style={textStyle}
+      >
         {Array.isArray(content.projects) ? content.projects.length : 0}{" "}
         project(s)
       </p>
-    </div>
+    </PreviewCard>
   );
 }
 
 export function SkillsGridRenderer({ section }: SectionPreviewProps) {
   const content = section.content as Record<string, unknown>;
   const heading = typeof content.heading === "string" ? content.heading : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+      <p
+        className="mt-2 text-sm text-slate-500 dark:text-slate-400"
+        style={textStyle}
+      >
         {Array.isArray(content.skills) ? content.skills.length : 0} skill(s)
       </p>
-    </div>
+    </PreviewCard>
   );
 }
 
 export function ExperienceTimelineRenderer({ section }: SectionPreviewProps) {
   const content = section.content as Record<string, unknown>;
   const heading = typeof content.heading === "string" ? content.heading : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+      <p
+        className="mt-2 text-sm text-slate-500 dark:text-slate-400"
+        style={textStyle}
+      >
         {Array.isArray(content.entries) ? content.entries.length : 0} entry(ies)
       </p>
-    </div>
+    </PreviewCard>
   );
 }
 
 export function TestimonialsRenderer({ section }: SectionPreviewProps) {
   const content = section.content as Record<string, unknown>;
   const heading = typeof content.heading === "string" ? content.heading : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+      <p
+        className="mt-2 text-sm text-slate-500 dark:text-slate-400"
+        style={textStyle}
+      >
         {Array.isArray(content.testimonials) ? content.testimonials.length : 0}{" "}
         testimonial(s)
       </p>
-    </div>
+    </PreviewCard>
   );
 }
 
 export function MetricsRenderer({ section }: SectionPreviewProps) {
   const content = section.content as Record<string, unknown>;
   const heading = typeof content.heading === "string" ? content.heading : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+      <p
+        className="mt-2 text-sm text-slate-500 dark:text-slate-400"
+        style={textStyle}
+      >
         {Array.isArray(content.metrics) ? content.metrics.length : 0} metric(s)
       </p>
-    </div>
+    </PreviewCard>
   );
 }
 
 export function LinkListRenderer({ section }: SectionPreviewProps) {
   const content = section.content as Record<string, unknown>;
   const heading = typeof content.heading === "string" ? content.heading : "";
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-      <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+    <PreviewCard section={section}>
+      <h3
+        className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+        style={textStyle}
+      >
         {heading || section.name}
       </h3>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+      <p
+        className="mt-2 text-sm text-slate-500 dark:text-slate-400"
+        style={textStyle}
+      >
         {Array.isArray(content.links) ? content.links.length : 0} link(s)
       </p>
-    </div>
+    </PreviewCard>
   );
 }
 
 export function DividerRenderer({ section }: SectionPreviewProps) {
+  const textStyle = sectionTextStyle(section.style);
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-      <p className="text-sm text-slate-600 dark:text-slate-400">
+    <PreviewCard section={section} compact>
+      <p
+        className="text-sm text-slate-600 dark:text-slate-400"
+        style={textStyle}
+      >
         {section.name}
       </p>
       <div className="mt-2 border-t border-slate-300 dark:border-slate-700" />
-    </div>
+    </PreviewCard>
   );
 }
 
@@ -277,7 +426,33 @@ const RENDERERS: Record<string, ComponentType<SectionPreviewProps>> = {
   divider: DividerRenderer,
 };
 
-export function SectionPreview({ section, sectionType }: SectionPreviewProps) {
+/**
+ * Renders one section for the editor preview. The section's responsive
+ * overrides are resolved for the requested breakpoint into a fresh style
+ * object — the stored section is never mutated — and the frame is width-
+ * constrained so tablet/mobile previews are visibly narrower.
+ */
+export function SectionPreview({
+  section,
+  sectionType,
+  breakpoint = DEFAULT_BREAKPOINT,
+}: SectionPreviewProps) {
   const Renderer = RENDERERS[section.section_type] ?? UnknownSectionRenderer;
-  return <Renderer section={section} sectionType={sectionType} />;
+  const previewSection: PageSection = {
+    ...section,
+    style: resolveSectionStyle(section.style, breakpoint),
+  };
+  return (
+    <div
+      data-breakpoint={breakpoint}
+      style={{
+        width: "100%",
+        maxWidth: PREVIEW_MAX_WIDTH[breakpoint],
+        marginLeft: "auto",
+        marginRight: "auto",
+      }}
+    >
+      <Renderer section={previewSection} sectionType={sectionType} />
+    </div>
+  );
 }

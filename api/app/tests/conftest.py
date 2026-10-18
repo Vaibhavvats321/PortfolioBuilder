@@ -68,6 +68,25 @@ def _ensure_database_exists(test_url: str) -> None:
         admin_engine.dispose()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_media_root(tmp_path_factory) -> Iterator[None]:
+    """Point local media uploads at a temporary directory during tests.
+
+    Without this, the default filesystem adapter would write upload fixtures
+    into the repository and leak state between test runs.
+    """
+    media_root = tmp_path_factory.mktemp("media")
+    previous = os.environ.get("MEDIA_ROOT")
+    os.environ["MEDIA_ROOT"] = str(media_root)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("MEDIA_ROOT", None)
+        else:
+            os.environ["MEDIA_ROOT"] = previous
+
+
 @pytest.fixture(scope="session")
 def test_engine(test_database_url: str) -> Iterator[Engine]:
     """Provide an engine bound to the test database with a fresh schema."""

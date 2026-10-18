@@ -10,6 +10,8 @@ export interface Portfolio {
   settings_json: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  published_at: string | null;
+  current_published_version_id: string | null;
 }
 
 export interface PortfolioCreatePayload {

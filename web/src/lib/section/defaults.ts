@@ -17,7 +17,10 @@ export function defaultForField(field: SectionField): unknown {
     case "text":
     case "textarea":
     case "url":
+    case "color":
       return typeof field.default === "string" ? field.default : "";
+    case "object":
+      return field.default ?? null;
     default:
       return field.default ?? null;
   }

@@ -23,6 +23,7 @@ from app.sections.fields import (
     default_fields,
     validate_fields,
 )
+from app.sections.responsive import default_overrides, validate_overrides
 
 # A section's content JSON is validated but otherwise free of size concerns; the
 # cap keeps a single section from growing unbounded.
@@ -55,6 +56,86 @@ _LINK_FIELDS = (
     SectionField(name="url", kind="url", label="URL", max_length=URL_MAX_LENGTH),
 )
 
+# Curated, section-level style overrides (the Phase 5 "Design Studio" inherits
+# these from the global theme). Every option defaults to ``"inherit"`` so a
+# section that does not customize a value keeps tracking the portfolio theme;
+# choosing a concrete value stores an explicit local override. These fields are
+# shared by every section type and stored separately from content and layout.
+_SECTION_STYLE_FIELDS: tuple[SectionField, ...] = (
+    SectionField(
+        name="background",
+        kind="select",
+        label="Background",
+        options=("inherit", "surface", "page", "transparent", "custom"),
+        default="inherit",
+        help_text="Choose 'custom' to use a specific background color.",
+    ),
+    SectionField(
+        name="background_color",
+        kind="color",
+        label="Custom background color",
+        help_text="Used only when Background is set to 'custom'.",
+    ),
+    SectionField(
+        name="text_color",
+        kind="color",
+        label="Text color",
+        help_text="Leave empty to inherit the theme text color.",
+    ),
+    SectionField(
+        name="spacing",
+        kind="select",
+        label="Vertical spacing",
+        options=("inherit", "none", "small", "medium", "large", "xlarge"),
+        default="inherit",
+    ),
+    SectionField(
+        name="width",
+        kind="select",
+        label="Content width",
+        options=("inherit", "narrow", "default", "wide", "full"),
+        default="inherit",
+    ),
+    SectionField(
+        name="radius",
+        kind="select",
+        label="Corner radius",
+        options=("inherit", "none", "small", "medium", "large", "pill"),
+        default="inherit",
+    ),
+    SectionField(
+        name="shadow",
+        kind="select",
+        label="Shadow",
+        options=("inherit", "none", "small", "medium", "large"),
+        default="inherit",
+    ),
+    SectionField(
+        name="border",
+        kind="select",
+        label="Border",
+        options=("inherit", "none", "thin", "thick"),
+        default="inherit",
+    ),
+)
+
+# Style fields that may be overridden per breakpoint. Excludes the override
+# field itself so a breakpoint object never nests recursively.
+RESPONSIVE_OVERRIDE_FIELDS: tuple[SectionField, ...] = _SECTION_STYLE_FIELDS
+
+SECTION_STYLE_FIELDS: tuple[SectionField, ...] = _SECTION_STYLE_FIELDS + (
+    SectionField(
+        name="responsive_override",
+        kind="object",
+        label="Responsive Override",
+        fields=RESPONSIVE_OVERRIDE_FIELDS,
+        validator=validate_overrides,
+        default=default_overrides(),
+        help_text="Per-breakpoint values for desktop, tablet, mobile. "
+        "Overrides inherit from global theme when set to null.",
+    ),
+)
+
 
 @dataclass(frozen=True)
 class SectionDefinition:
@@ -67,6 +148,7 @@ class SectionDefinition:
     schema_version: int
     content_fields: tuple[SectionField, ...]
     layout_fields: tuple[SectionField, ...] = (_ALIGNMENT,)
+    style_fields: tuple[SectionField, ...] = SECTION_STYLE_FIELDS
 
     def default_content(self) -> dict[str, Any]:
         return default_fields(self.content_fields)
@@ -74,11 +156,17 @@ class SectionDefinition:
     def default_layout(self) -> dict[str, Any]:
         return default_fields(self.layout_fields)
 
+    def default_style(self) -> dict[str, Any]:
+        return default_fields(self.style_fields)
+
     def validate_content(self, content: dict[str, Any]) -> dict[str, Any]:
         return validate_fields(self.content_fields, content, path="content")
 
     def validate_layout(self, layout: dict[str, Any]) -> dict[str, Any]:
         return validate_fields(self.layout_fields, layout, path="layout")
+
+    def validate_style(self, style: dict[str, Any]) -> dict[str, Any]:
+        return validate_fields(self.style_fields, style, path="style")
 
 
 SECTION_TYPES: tuple[SectionDefinition, ...] = (
